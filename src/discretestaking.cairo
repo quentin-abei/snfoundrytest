@@ -29,10 +29,34 @@ pub trait ISimpleVault<TContractState> {
 
 #[starknet::contract]
 pub mod StakingRewards {
-    use super::{IERC20Dispatcher, IERC20DispatcherTrait};
+    use core::starknet::event::EventEmitter;
+use super::{IERC20Dispatcher, IERC20DispatcherTrait};
     use starknet::{ContractAddress, get_caller_address, get_contract_address, get_block_timestamp};
     use core::num::traits::Zero;
     const MULTIPLIER: u256 = 1000000000000000000;
+    
+    #[event]
+    #[derive(Drop, starknet::Event)]
+    enum Event {
+      Staked: Staked,
+      Unstaked: Unstaked,
+      Claim: Claimed,
+    }
+
+    #[derive(Drop, starknet::Event)]
+    struct Staked {
+      amount: u256
+    }
+
+    #[derive(Drop, starknet::Event)]
+    struct Unstaked {
+      amount: u256
+    }
+    
+    #[derive(Drop, starknet::Event)]
+    struct Claimed {
+      reward: u256
+    }
 
     #[storage]
     struct Storage {
@@ -78,6 +102,7 @@ pub mod StakingRewards {
          self.stakingToken.read().transfer_from(caller, this, amount);
          self.balanceOf.write(caller, self.balanceOf.read(caller) + amount);
          self.totalSupply.write(self.totalSupply.read() + amount);
+         self.emit(Staked{amount});
        }
 
        fn unstake(ref self: ContractState, amount: u256) {
@@ -88,6 +113,7 @@ pub mod StakingRewards {
          self.balanceOf.write(caller, self.balanceOf.read(caller) - amount);
          self.totalSupply.write(self.totalSupply.read() - amount);
          self.stakingToken.read().transfer(caller, amount);
+         self.emit(Unstaked{amount});
        }
 
        fn claim(ref self: ContractState) -> u256 {
@@ -98,6 +124,7 @@ pub mod StakingRewards {
             self.earned.write(caller, 0);
             self.rewardsToken.read().transfer(caller, reward);
          }
+         self.emit(Claimed{reward});
          return reward;
        }
 
