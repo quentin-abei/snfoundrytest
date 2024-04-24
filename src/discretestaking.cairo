@@ -30,7 +30,7 @@ pub trait ISimpleVault<TContractState> {
 #[starknet::contract]
 pub mod StakingRewards {
     use core::starknet::event::EventEmitter;
-use super::{IERC20Dispatcher, IERC20DispatcherTrait};
+    use super::{IERC20Dispatcher, IERC20DispatcherTrait};
     use starknet::{ContractAddress, get_caller_address, get_contract_address, get_block_timestamp};
     use core::num::traits::Zero;
     const MULTIPLIER: u256 = 1000000000000000000;
