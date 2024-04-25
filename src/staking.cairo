@@ -23,8 +23,8 @@ pub trait ISimpleVault<TContractState> {
     fn stake(ref self: TContractState, amount: u256);
     fn unstake(ref self: TContractState, amount: u256);
     fn claim(ref self: TContractState) -> u256;
-    fn update_rewards_index(ref self: TContractState, reward: u256);
-    fn calculate_rewards_earned(ref self: TContractState, account: ContractAddress) -> u256;
+    fn currentRewardsPerToken(ref self: TContractState)-> u256;
+    fn currentUserRewards(ref self: TContractState)-> u256;
 }
 
 #[starknet::contract]
@@ -216,13 +216,68 @@ use core::starknet::event::EventEmitter;
 
        /// @notice Unstake tokens.
        fn _unstake(ref self: ContractState, user: ContractAddress, amount: u256) {
-        let caller = get_caller_address();
+          let caller = get_caller_address();
           PrivateFunctions::_updateUserRewards(ref self, user);
           self.totalStaked.write(self.totalStaked.read() - amount);
           self.userStake.write(user, self.userStake.read(user) - amount);
           self.stakingToken.read().transfer(caller, amount);
           self.emit(Unstaked{user: user, amount: amount});
        }
+
+       /// @notice Claim rewards.
+       fn _claim(ref self: ContractState, user: ContractAddress, amount: u256) {
+          let caller = get_caller_address();
+          let rewardsAvailable: u256 = PrivateFunctions::_updateUserRewards(ref self, caller).accumulated;
+
+          let mut userRewards_: UserRewards = self.accumulatedRewards.read(user);
+          // This line would panic if the user doesn't have enough rewards accumulated
+          userRewards_.accumulated = rewardsAvailable - amount;
+          self.accumulatedRewards.write(user, userRewards_);
+          // This line would panic if the contract doesn't have enough rewards tokens
+          self.rewardsToken.read().transfer(caller, amount);
+          self.emit(Claimed{user: user, amount: amount});
+       }
+    }
+
+    #[abi(embed_v0)]
+    impl SimpleVault of super::ISimpleVault<ContractState> {
+        /// @notice Stake tokens.
+        fn stake(ref self: ContractState, amount: u256)
+         {
+            let caller = get_caller_address();
+            PrivateFunctions::_stake(ref self, caller, amount);
+         }
+         
+         
+         fn unstake(ref self: ContractState, amount: u256)
+         {
+            let caller = get_caller_address();
+            PrivateFunctions::_unstake(ref self, caller, amount);
+         }
+
+         fn claim(ref self: ContractState) -> u256
+         {
+            let caller = get_caller_address();
+            let claimed: u256 = PrivateFunctions::_updateUserRewards(ref self, caller).accumulated; 
+            PrivateFunctions::_claim(ref self, caller, claimed);
+            return claimed;
+         }
+
+         /// @notice Calculate and return current rewards per token.
+        fn currentRewardsPerToken(ref self: ContractState)-> u256 {
+           let mut rewardsPerTokenIn_ : RewardsPerToken = self.rewardsPerTokenMap.read(1);
+           return PrivateFunctions::_calculateRewardsPerToken(ref self, rewardsPerTokenIn_).accumulated;
+        }
+
+        /// @notice Calculate and return current rewards for a user.
+        /// @dev This repeats the logic used on transactions, but doesn't update the storage.
+        fn currentUserRewards(ref self: ContractState)-> u256 {
+            let caller = get_caller_address();
+            let mut accumulatedRewards_: UserRewards = self.accumulatedRewards.read(caller);
+            let mut rewardsPerTokenIn_ : RewardsPerToken = self.rewardsPerTokenMap.read(1);
+            let mut rewardsPerToken_: RewardsPerToken = PrivateFunctions::_calculateRewardsPerToken(ref self, rewardsPerTokenIn_);
+            return accumulatedRewards_.accumulated + PrivateFunctions::_calculateUserRewards(ref self, self.userStake.read(caller), accumulatedRewards_.checkpoint, rewardsPerToken_.accumulated);
+        }
     }
 }
 
