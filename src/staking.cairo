@@ -109,6 +109,7 @@ use core::starknet::event::EventEmitter;
         totalStaked: u256,
         userStake: LegacyMap<ContractAddress, u256>,
         accumulatedRewards: LegacyMap<ContractAddress, UserRewards>,
+        rewardsPerTokenMap: LegacyMap<u8, RewardsPerToken>,
         rewardsRate: u256,
         rewardsStart: u256,
         rewardsEnd: u256,
@@ -152,6 +153,75 @@ use core::starknet::event::EventEmitter;
             updateTime = self.rewardsEnd.read();
           }
           let mut elapsed: u256 = updateTime - rewardsPerTokenIn.lastUpdated;
+          // No changes if no time has passed
+          if(elapsed == 0) {
+            return rewardsPerTokenOut;
+          }
+          rewardsPerTokenOut.lastUpdated = updateTime;
+
+          // If there are no stakers we just change the last update time, the rewards for intervals without stakers are not accumulated
+          if(totalStaked_ == 0) {
+            return rewardsPerTokenOut;
+          }
+          // Calculate and update the new value of the accumulator.
+          // The rewards per token are scaled up for precision
+          rewardsPerTokenOut.accumulated = (rewardsPerTokenIn.accumulated + 1000000000000000000* elapsed * self.rewardsRate.read()/ totalStaked_);
+          self.rewardsPerTokenMap.write(1, rewardsPerTokenOut);
+          return rewardsPerTokenOut;
+       }
+
+       /// @notice Calculate the rewards accumulated by a stake between two checkpoints.
+       fn _calculateUserRewards(ref self: ContractState, stake: u256, earlierCheckpoint: u256, laterCheckpoint: u256) -> u256 {
+          // We must scale down the rewards by the precision factor
+          return stake * (laterCheckpoint - earlierCheckpoint) / 1000000000000000000;
+       }
+
+       /// @notice Update and return the rewards per token accumulator according to the rate, the time elapsed since the last update, and the current total staked amount.
+       fn _updateRewardsPerToken(ref self: ContractState) -> RewardsPerToken {
+          let mut rewardsPerTokenIn_ : RewardsPerToken = self.rewardsPerTokenMap.read(1);
+          let mut rewardsPerTokenOut_: RewardsPerToken = PrivateFunctions::_calculateRewardsPerToken(ref self, rewardsPerTokenIn_);
+          // We skip the storage changes if already updated in the same block, or if the program has ended and was updated at the end
+          if (rewardsPerTokenIn_.lastUpdated == rewardsPerTokenOut_.lastUpdated) {return rewardsPerTokenOut_;}
+
+          RewardsPerToken{accumulated: rewardsPerTokenOut_.accumulated, lastUpdated: rewardsPerTokenOut_.lastUpdated};
+          self.emit(RewardsPerTokenUpdated{accumulated: rewardsPerTokenOut_.accumulated});
+          return rewardsPerTokenOut_;
+       }
+
+       /// @notice Calculate and store current rewards for an user. Checkpoint the rewardsPerToken value with the user.
+       fn _updateUserRewards(ref self: ContractState, user: ContractAddress) -> UserRewards {
+          let mut rewardsPerToken_: RewardsPerToken = PrivateFunctions::_updateRewardsPerToken(ref self);
+          let mut userRewards_: UserRewards = self.accumulatedRewards.read(user);
+
+          // We skip the storage changes if already updated in the same block
+          if (userRewards_.checkpoint == rewardsPerToken_.lastUpdated) {return userRewards_;}
+          // Calculate and update the new value user reserves.
+          userRewards_.accumulated = userRewards_.accumulated + PrivateFunctions::_calculateUserRewards(ref self, self.userStake.read(user),userRewards_.checkpoint, rewardsPerToken_.accumulated );
+          userRewards_.checkpoint = rewardsPerToken_.accumulated;
+          self.accumulatedRewards.write(user, userRewards_);
+          self.emit(UserRewardsUpdated{user: user, rewards: userRewards_.accumulated, checkpoint: userRewards_.checkpoint});
+          return userRewards_;
+       }
+
+       /// @notice Stake tokens.
+       fn _stake(ref self: ContractState, user: ContractAddress, amount: u256) {
+          let caller = get_caller_address();
+          let this = get_contract_address();
+          PrivateFunctions::_updateUserRewards(ref self, user);
+          self.stakingToken.read().transfer_from(caller, this, amount);
+          self.totalStaked.write(self.totalStaked.read() + amount);
+          self.userStake.write(user, self.userStake.read(user) + amount);
+          self.emit(Staked{user: user, amount: amount});
+       }
+
+       /// @notice Unstake tokens.
+       fn _unstake(ref self: ContractState, user: ContractAddress, amount: u256) {
+        let caller = get_caller_address();
+          PrivateFunctions::_updateUserRewards(ref self, user);
+          self.totalStaked.write(self.totalStaked.read() - amount);
+          self.userStake.write(user, self.userStake.read(user) - amount);
+          self.stakingToken.read().transfer(caller, amount);
+          self.emit(Unstaked{user: user, amount: amount});
        }
     }
 }
