@@ -38,9 +38,9 @@ pub mod SimpleRewards {
 /// Careful if using non-standard ERC20 tokens, as they might break things.
 
     use core::traits::Into;
-use core::option::OptionTrait;
-use core::traits::TryInto;
-use core::starknet::event::EventEmitter;
+    use core::option::OptionTrait;
+    use core::traits::TryInto;
+    use core::starknet::event::EventEmitter;
     use super::{IERC20Dispatcher, IERC20DispatcherTrait};
     use starknet::{ContractAddress, get_caller_address, get_contract_address, get_block_timestamp};
     use core::num::traits::Zero;
@@ -226,15 +226,14 @@ use core::starknet::event::EventEmitter;
 
        /// @notice Claim rewards.
        fn _claim(ref self: ContractState, user: ContractAddress, amount: u256) {
-          let caller = get_caller_address();
-          let rewardsAvailable: u256 = PrivateFunctions::_updateUserRewards(ref self, caller).accumulated;
+          let rewardsAvailable: u256 = PrivateFunctions::_updateUserRewards(ref self, user).accumulated;
 
           let mut userRewards_: UserRewards = self.accumulatedRewards.read(user);
           // This line would panic if the user doesn't have enough rewards accumulated
           userRewards_.accumulated = rewardsAvailable - amount;
           self.accumulatedRewards.write(user, userRewards_);
           // This line would panic if the contract doesn't have enough rewards tokens
-          self.rewardsToken.read().transfer(caller, amount);
+          self.rewardsToken.read().transfer(user, amount);
           self.emit(Claimed{user: user, amount: amount});
        }
     }

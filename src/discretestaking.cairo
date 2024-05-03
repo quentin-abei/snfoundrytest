@@ -28,6 +28,9 @@ pub trait ISimpleVault<TContractState> {
 }
 
 #[starknet::contract]
+// this contract does not have any guarantee to work, this is a solidityByExample implementation in ClaimedDrop
+// I did not audit nor write tests for this contract.
+// Use at your own risks
 pub mod StakingRewards {
     use core::starknet::event::EventEmitter;
     use super::{IERC20Dispatcher, IERC20DispatcherTrait};
