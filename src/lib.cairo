@@ -1,3 +1,3 @@
-mod helloStarknet;
-mod discretestaking;
-mod staking;
+pub mod discretestaking;
+pub mod erc20;
+pub mod staking;
